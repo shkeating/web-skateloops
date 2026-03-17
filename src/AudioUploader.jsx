@@ -119,6 +119,41 @@ export default function AudioUploader() {
     setIsPlaying(true)
   }
 
+  // 3. sync with the android lock screen and notification shade
+  useEffect(() => {
+    if ('mediaSession' in navigator) {
+      // set the track info
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: trackName || 'no track loaded',
+        artist: 'practice player',
+        album: 'figure skating drills',
+        // these are the standard vite pwa icons you will generate later
+        artwork: [
+          { src: '/icon-192x192.png', sizes: '192x192', type: 'image/png' },
+          { src: '/icon-512x512.png', sizes: '512x512', type: 'image/png' }
+        ]
+      })
+
+      // tell android what to do when you hit the buttons on the lock screen
+      navigator.mediaSession.setActionHandler('play', () => {
+        startPlayback(false) // plays immediately without the delay
+      })
+
+      navigator.mediaSession.setActionHandler('pause', () => {
+        pausePlayback()
+      })
+
+      // optionally, you can add seek handlers here later if you want to skip forward/back
+    }
+  }, [trackName]) // re-run this if the track name changes
+
+  // 4. keep the play/pause icon on the lock screen in sync with the app state
+  useEffect(() => {
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused'
+    }
+  }, [isPlaying])
+
   return (
     <section aria-labelledby="upload-heading">
       <h2 id="upload-heading">Web Test of "Skate Loops" App</h2>
