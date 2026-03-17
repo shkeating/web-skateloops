@@ -169,13 +169,14 @@ const pausePlayback = () => {
       
       {/* Hidden audio element to keep the background process alive */}
       <audio 
-  ref={hiddenAudioRef} 
-  src="/silence.mp3" 
-  loop 
-  playsInline 
-  aria-hidden="true" 
-  style={{ display: 'none' }} 
-/>
+        ref={hiddenAudioRef} 
+        src="/silence.mp3" 
+        loop 
+        playsInline 
+        aria-hidden="true" 
+        style={{ display: 'none' }} 
+        onPause={pausePlayback} 
+      />
       
       <div className="upload-group" style={{ marginBottom: '2rem' }}>
         <label htmlFor="audio-upload" style={{ display: 'block', marginBottom: '0.5rem' }}>Upload your track:</label>
