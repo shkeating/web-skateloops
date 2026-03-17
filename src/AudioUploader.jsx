@@ -5,17 +5,21 @@ export default function AudioUploader() {
   const [trackName, setTrackName] = useState('')
   const [delaySeconds, setDelaySeconds] = useState(10)
   const [isPlaying, setIsPlaying] = useState(false)
-  const [volume, setVolume] = useState(0.8) // 0.0 to 1.0
+  const [volume, setVolume] = useState(0.8)
 
-  // Core Web Audio references
+  // Core audio references
   const audioCtxRef = useRef(null)
   const gainNodeRef = useRef(null)
   const sourceNodeRef = useRef(null)
-  const audioBufferRef = useRef(null) // Caches the decoded audio
+  const audioBufferRef = useRef(null)
+  const hiddenAudioRef = useRef(null)
 
   // Playback tracking for pause/resume math
   const trackOffsetRef = useRef(0) 
   const startContextTimeRef = useRef(0) 
+
+  // A tiny 1-second silent WAV file encoded as a data string to keep the OS awake
+  const silentWav = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA"
 
   // 1. Initialize the audio context and volume node
   const initAudio = () => {
@@ -23,7 +27,6 @@ export default function AudioUploader() {
       const AudioContext = window.AudioContext || window.webkitAudioContext
       audioCtxRef.current = new AudioContext()
       
-      // Create a volume node and connect it to the speakers
       gainNodeRef.current = audioCtxRef.current.createGain()
       gainNodeRef.current.connect(audioCtxRef.current.destination)
       gainNodeRef.current.gain.value = volume
@@ -31,7 +34,7 @@ export default function AudioUploader() {
     return audioCtxRef.current
   }
 
-  // 2. Update the GainNode whenever the volume state changes
+  // 2. Sync volume slider with the GainNode
   useEffect(() => {
     if (gainNodeRef.current) {
       gainNodeRef.current.gain.value = volume
@@ -44,10 +47,10 @@ export default function AudioUploader() {
     const arrayBuffer = await file.arrayBuffer()
     audioBufferRef.current = await ctx.decodeAudioData(arrayBuffer)
     setTrackName(file.name)
-    trackOffsetRef.current = 0 // Reset playback position
+    trackOffsetRef.current = 0 
   }
 
-  // Check for saved track on mount
+  // 3. Check for saved track on mount
   useEffect(() => {
     async function loadSavedTrack() {
       try {
@@ -60,6 +63,7 @@ export default function AudioUploader() {
     loadSavedTrack()
   }, [])
 
+  // 4. Handle new uploads
   const handleUpload = async (e) => {
     const file = e.target.files[0]
     if (!file) return
@@ -72,82 +76,87 @@ export default function AudioUploader() {
     }
   }
 
-  const pausePlayback = () => {
-    if (sourceNodeRef.current && isPlaying) {
+  // 5. Playback Controls
+const pausePlayback = () => {
+    // Rely only on the ref, which avoids the stale closure trap
+    if (sourceNodeRef.current) {
       sourceNodeRef.current.stop()
       sourceNodeRef.current.disconnect()
       sourceNodeRef.current = null
 
-      // Calculate exactly how much time passed since we hit play
       const ctx = audioCtxRef.current
-      const timeElapsed = ctx.currentTime - startContextTimeRef.current
-      trackOffsetRef.current += timeElapsed
+      trackOffsetRef.current += (ctx.currentTime - startContextTimeRef.current)
+      
+      // Only call pause if it isn't already paused 
+      // (prevents infinite loops with the native event listener we are adding next)
+      if (hiddenAudioRef.current && !hiddenAudioRef.current.paused) {
+        hiddenAudioRef.current.pause()
+      }
       
       setIsPlaying(false)
     }
   }
 
   const startPlayback = async (useDelay = false) => {
+    // 1. FIRE THIS IMMEDIATELY BEFORE ANY AWAIT CALLS
+    // this locks in the user gesture token for the android os
+    if (hiddenAudioRef.current) {
+      hiddenAudioRef.current.play().catch(err => console.log('silent play blocked:', err))
+    }
+
     const ctx = initAudio()
+    // 2. now we can safely await the web audio api stuff
     if (ctx.state === 'suspended') await ctx.resume()
-    if (!audioBufferRef.current) return
+    
+    if (!audioBufferRef.current) {
+      alert("audio is still decoding or missing. please try again.")
+      return
+    }
 
-    // Stop any currently playing audio before starting new
-    pausePlayback() 
+    // pause any existing web audio tracks
+    if (sourceNodeRef.current && isPlaying) {
+      sourceNodeRef.current.stop()
+      sourceNodeRef.current.disconnect()
+      sourceNodeRef.current = null
+      trackOffsetRef.current += (ctx.currentTime - startContextTimeRef.current)
+    }
 
-    // Silent unlock for mobile background play
-    const oscillator = ctx.createOscillator()
-    oscillator.connect(ctx.destination)
-    oscillator.start()
-    oscillator.stop(ctx.currentTime + 0.1)
-
-    // Create a new source node and connect it to our volume node
     const source = ctx.createBufferSource()
     source.buffer = audioBufferRef.current
     source.connect(gainNodeRef.current)
     sourceNodeRef.current = source
 
-    // Schedule the start
     const delay = useDelay ? delaySeconds : 0
     const scheduledStartTime = ctx.currentTime + delay
     
-    // start(whenToStart, whereInTrackToStart)
     source.start(scheduledStartTime, trackOffsetRef.current)
     
-    // Save the exact context time it started so we can calculate pauses later
     startContextTimeRef.current = scheduledStartTime
     setIsPlaying(true)
   }
 
-  // 3. sync with the android lock screen and notification shade
+  const resetPlayback = () => {
+    pausePlayback()
+    trackOffsetRef.current = 0
+  }
+
+  // 6. Media Session API for lock screen and smartwatch
   useEffect(() => {
     if ('mediaSession' in navigator) {
-      // set the track info
       navigator.mediaSession.metadata = new MediaMetadata({
-        title: trackName || 'no track loaded',
-        artist: 'practice player',
-        album: 'figure skating drills',
-        // these are the standard vite pwa icons you will generate later
+        title: trackName || 'Ready to Skate',
+        artist: 'Practice Player',
         artwork: [
           { src: '/icon-192x192.png', sizes: '192x192', type: 'image/png' },
           { src: '/icon-512x512.png', sizes: '512x512', type: 'image/png' }
         ]
       })
 
-      // tell android what to do when you hit the buttons on the lock screen
-      navigator.mediaSession.setActionHandler('play', () => {
-        startPlayback(false) // plays immediately without the delay
-      })
-
-      navigator.mediaSession.setActionHandler('pause', () => {
-        pausePlayback()
-      })
-
-      // optionally, you can add seek handlers here later if you want to skip forward/back
+      navigator.mediaSession.setActionHandler('play', () => startPlayback(false))
+      navigator.mediaSession.setActionHandler('pause', () => pausePlayback())
     }
-  }, [trackName]) // re-run this if the track name changes
+  }, [trackName])
 
-  // 4. keep the play/pause icon on the lock screen in sync with the app state
   useEffect(() => {
     if ('mediaSession' in navigator) {
       navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused'
@@ -155,21 +164,36 @@ export default function AudioUploader() {
   }, [isPlaying])
 
   return (
-    <section aria-labelledby="upload-heading">
-      <h2 id="upload-heading">Web Test of "Skate Loops" App</h2>
-     
-      <div className="upload-group">
-        <label htmlFor="audio-upload">upload your track: </label>
-        <input id="audio-upload" type="file" accept="audio/*" onChange={handleUpload} />
+    <section aria-labelledby="upload-heading" style={{ maxWidth: '400px', margin: '0 auto', padding: '1rem' }}>
+      <h2 id="upload-heading">Program Music</h2>
+      
+      {/* Hidden audio element to keep the background process alive */}
+      <audio 
+  ref={hiddenAudioRef} 
+  src="/silence.mp3" 
+  loop 
+  playsInline 
+  aria-hidden="true" 
+  style={{ display: 'none' }} 
+/>
+      
+      <div className="upload-group" style={{ marginBottom: '2rem' }}>
+        <label htmlFor="audio-upload" style={{ display: 'block', marginBottom: '0.5rem' }}>Upload your track:</label>
+        <input 
+          id="audio-upload" 
+          type="file" 
+          accept="audio/*" 
+          onChange={handleUpload} 
+          style={{ width: '100%' }}
+        />
       </div>
 
       {trackName && (
-        <div className="controls" style={{ marginTop: '2rem', padding: '1rem', border: '1px solid #ccc' }}>
-          <p aria-live="polite"><strong>loaded:</strong> {trackName}</p>
+        <div className="controls" style={{ padding: '1rem', border: '1px solid #ccc', borderRadius: '8px' }}>
+          <p aria-live="polite" style={{ marginTop: 0 }}><strong>Loaded:</strong> {trackName}</p>
           
-          {/* VOLUME CONTROL */}
-          <div style={{ margin: '1rem 0', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            <label htmlFor="volume-slider">volume</label>
+          <div style={{ margin: '1.5rem 0' }}>
+            <label htmlFor="volume-slider" style={{ display: 'block', marginBottom: '0.5rem' }}>Volume</label>
             <input 
               id="volume-slider"
               type="range" 
@@ -178,50 +202,44 @@ export default function AudioUploader() {
               step="0.05" 
               value={volume}
               onChange={(e) => setVolume(parseFloat(e.target.value))}
+              style={{ width: '100%' }}
             />
           </div>
 
-          {/* DELAY SETTINGS */}
-          <div style={{ margin: '1rem 0' }}>
-            <label htmlFor="delay-input">start delay (seconds): </label>
+          <div style={{ margin: '1.5rem 0' }}>
+            <label htmlFor="delay-input" style={{ display: 'block', marginBottom: '0.5rem' }}>Start Delay (seconds): </label>
             <input 
               id="delay-input" 
               type="number" 
+              min="0"
               value={delaySeconds}
               onChange={(e) => setDelaySeconds(Number(e.target.value))}
-              style={{ width: '60px' }}
+              style={{ width: '80px', padding: '0.25rem' }}
             />
           </div>
 
-          {/* PLAYBACK CONTROLS */}
-          <div style={{ display: 'flex', gap: '1rem' }}>
-            {isPlaying ? (
-              <button onClick={pausePlayback} aria-label="pause track">pause</button>
-            ) : (
-              <button onClick={() => startPlayback(false)} aria-label="play track immediately">play</button>
-            )}
-            
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             <button 
               onClick={() => startPlayback(true)} 
-              aria-label={`play track with ${delaySeconds} second delay`}
+              aria-label={`Play track with ${delaySeconds} second delay`}
+              style={{ padding: '0.75rem', fontWeight: 'bold' }}
             >
-              play (with delay)
+              Play with {delaySeconds}s Delay
             </button>
             
-            <button 
-              onClick={() => {
-                pausePlayback()
-                trackOffsetRef.current = 0 // Reset to beginning
-              }}
-              aria-label="stop and reset track"
-            >
-              reset
-            </button>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              {isPlaying ? (
+                <button onClick={pausePlayback} style={{ flex: 1, padding: '0.5rem' }}>Pause</button>
+              ) : (
+                <button onClick={() => startPlayback(false)} style={{ flex: 1, padding: '0.5rem' }}>Play (Instant)</button>
+              )}
+              <button onClick={resetPlayback} style={{ flex: 1, padding: '0.5rem' }}>Reset</button>
+            </div>
           </div>
         </div>
       )}
 
-       <p>If you are on iOS spend the $2 on <a href="https://apps.apple.com/us/app/skateloops-mp3-practice-app/id6476055748">the SkateLoops App</a> by Shauna Lynn. It's better, trust me!! This is just to tide us over until she gets around to releasing an Android version.</p>
+       <p style={{marginTop: '20px'}}>If you are on iOS spend the $2 on <a href="https://apps.apple.com/us/app/skateloops-mp3-practice-app/id6476055748">the SkateLoops App</a> by Shauna Lynn. It's better, trust me!! This is just to tide us over until she gets around to releasing an Android version.</p>
       
     </section>
   )
