@@ -121,8 +121,8 @@ export default function AudioUploader() {
 
   return (
     <section aria-labelledby="upload-heading">
-      <h2 id="upload-heading">program music</h2>
-      
+      <h2 id="upload-heading">Web Test of "Skate Loops" App</h2>
+     
       <div className="upload-group">
         <label htmlFor="audio-upload">upload your track: </label>
         <input id="audio-upload" type="file" accept="audio/*" onChange={handleUpload} />
@@ -185,6 +185,9 @@ export default function AudioUploader() {
           </div>
         </div>
       )}
+
+       <p>If you are on iOS spend the $2 on <a href="https://apps.apple.com/us/app/skateloops-mp3-practice-app/id6476055748">the SkateLoops App</a> by Shauna Lynn. It's better, trust me!! This is just to tide us over until she gets around to releasing an Android version.</p>
+      
     </section>
   )
 }
