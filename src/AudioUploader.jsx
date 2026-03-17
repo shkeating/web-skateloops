@@ -240,7 +240,7 @@ const pausePlayback = () => {
         </div>
       )}
 
-       <p style={{marginTop: '20px'}}>If you are on iOS spend the $2 on <a href="https://apps.apple.com/us/app/skateloops-mp3-practice-app/id6476055748">the SkateLoops App</a> by Shauna Lynn. It's better, trust me!! This is just to tide us over until she gets around to releasing an Android version.</p>
+       <p style={{marginTop: '20px', fontSize: '14px'}}>If you are on iOS spend the $2 on <a href="https://apps.apple.com/us/app/skateloops-mp3-practice-app/id6476055748">the SkateLoops App</a> by Shauna Lynn. It's better, trust me!! This is just to tide us over until she gets around to releasing an Android version. Anytime we mess with native device audio playback no the web, it just isn't going to be as good as a native app and what is possible</p>
       
     </section>
   )
